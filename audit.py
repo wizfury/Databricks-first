@@ -10,7 +10,9 @@ Includes a transparent SQLite fallback for offline development, pytest, and loca
 
 import json
 import logging
+import os
 import sqlite3
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,79 +32,107 @@ from models import (
     VerificationStatus,
 )
 
+import tempfile
+
 logger = logging.getLogger(__name__)
+
+
+def _get_writable_db_path(requested_path: Optional[str] = None) -> str:
+    """Resolve a safe, writable SQLite database path (falls back to tempdir if cwd is read-only)."""
+    if requested_path:
+        return requested_path
+
+    # Check environment variable override
+    env_path = os.getenv("SQLITE_DB_PATH")
+    if env_path:
+        return env_path
+
+    # Test if current working directory is writable
+    local_test = Path("recovery_audit.db")
+    try:
+        # Check write access to directory
+        test_file = Path(".write_check")
+        test_file.touch()
+        test_file.unlink()
+        return "recovery_audit.db"
+    except Exception:
+        # Working directory is mounted read-only (common in Databricks Apps)
+        return str(Path(tempfile.gettempdir()) / "recovery_audit.db")
 
 
 class AuditAndStateStore:
     """Durable persistence layer for audit trails, state tracking, and policies."""
 
-    def __init__(self, client: Optional[DatabricksClientWrapper] = None, db_path: str = "recovery_audit.db"):
+    def __init__(self, client: Optional[DatabricksClientWrapper] = None, db_path: Optional[str] = None):
         self.client = client or databricks_client
-        self.db_path = db_path
+        self.db_path = _get_writable_db_path(db_path)
         # Always initialize local SQLite fallback table structure for local dev / tests
         self._init_sqlite_db()
 
     def _init_sqlite_db(self):
         """Initialize local SQLite tables matching Delta table schemas."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # 1. recovery_history
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS recovery_history (
-                event_id TEXT PRIMARY KEY,
-                workspace_id TEXT,
-                job_id INTEGER,
-                run_id INTEGER,
-                task_key TEXT,
-                failure_category TEXT,
-                root_cause TEXT,
-                confidence REAL,
-                recommended_action TEXT,
-                executed_action TEXT,
-                approval_status TEXT,
-                approved_by TEXT,
-                repair_id INTEGER,
-                recovery_status TEXT,
-                verification_status TEXT,
-                error_summary TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-        """)
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # 1. recovery_history
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS recovery_history (
+                    event_id TEXT PRIMARY KEY,
+                    workspace_id TEXT,
+                    job_id INTEGER,
+                    run_id INTEGER,
+                    task_key TEXT,
+                    failure_category TEXT,
+                    root_cause TEXT,
+                    confidence REAL,
+                    recommended_action TEXT,
+                    executed_action TEXT,
+                    approval_status TEXT,
+                    approved_by TEXT,
+                    repair_id INTEGER,
+                    recovery_status TEXT,
+                    verification_status TEXT,
+                    error_summary TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            """)
 
-        # 2. recovery_state
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS recovery_state (
-                job_id INTEGER,
-                run_id INTEGER,
-                attempt_count INTEGER DEFAULT 0,
-                last_attempt_time TEXT,
-                last_action TEXT,
-                is_locked INTEGER DEFAULT 0,
-                lock_token TEXT,
-                idempotency_key TEXT,
-                status TEXT,
-                PRIMARY KEY (job_id, run_id)
-            )
-        """)
+            # 2. recovery_state
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS recovery_state (
+                    job_id INTEGER,
+                    run_id INTEGER,
+                    attempt_count INTEGER DEFAULT 0,
+                    last_attempt_time TEXT,
+                    last_action TEXT,
+                    is_locked INTEGER DEFAULT 0,
+                    lock_token TEXT,
+                    idempotency_key TEXT,
+                    status TEXT,
+                    PRIMARY KEY (job_id, run_id)
+                )
+            """)
 
-        # 3. recovery_policies
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS recovery_policies (
-                job_id INTEGER PRIMARY KEY,
-                allowlisted INTEGER DEFAULT 1,
-                allowed_actions TEXT,
-                max_retries INTEGER DEFAULT 3,
-                cooldown_seconds INTEGER DEFAULT 60,
-                auto_recovery_eligible INTEGER DEFAULT 0,
-                requires_human_approval INTEGER DEFAULT 1,
-                data_quality_thresholds TEXT
-            )
-        """)
+            # 3. recovery_policies
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS recovery_policies (
+                    job_id INTEGER PRIMARY KEY,
+                    allowlisted INTEGER DEFAULT 1,
+                    allowed_actions TEXT,
+                    max_retries INTEGER DEFAULT 3,
+                    cooldown_seconds INTEGER DEFAULT 60,
+                    auto_recovery_eligible INTEGER DEFAULT 0,
+                    requires_human_approval INTEGER DEFAULT 1,
+                    data_quality_thresholds TEXT
+                )
+            """)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning("Failed to initialize SQLite backing store: %s", e)
 
     # --- Policy Operations ---
 

@@ -277,3 +277,43 @@ All 28 tests cover the 14 failure scenarios required in Section 10:
 streamlit run app.py
 ```
 Open your browser at `http://localhost:8501`.
+
+---
+
+## 7. Troubleshooting: "App Not Available" Error in Databricks Apps
+
+If you encounter:
+> **"App Not Available: Sorry, the Databricks app you are trying to access is currently unavailable. Please try again later."**
+
+Follow these 4 diagnostic checks:
+
+### 1. Dynamic Port Binding (`app.yaml`)
+Databricks Apps assigns a dynamic listening port at runtime through the `DATABRICKS_APP_PORT` environment variable and automatically maps it to Streamlit's `STREAMLIT_SERVER_PORT`.
+* **Fix applied:** `app.yaml` uses the standard command:
+  ```yaml
+  command:
+    - "streamlit"
+    - "run"
+    - "app.py"
+  ```
+  *(Never pass `--server.port 8501` in `app.yaml` on Databricks Apps, as it overrides the dynamic proxy port).*
+
+### 2. Grant `CAN USE` Permission in the Databricks Apps UI
+If the app was deployed via a Service Principal, Git repo, or by a workspace admin, other users will receive this error until explicit access is granted:
+1. Navigate to **Compute** -> **Apps** in Databricks.
+2. Click your app: `ai-self-healing-pipeline`.
+3. In the top right, click **Share / Permissions**.
+4. Add your user account or group and set permission to **`CAN USE`** (or **`CAN MANAGE`**).
+
+### 3. Inspect Container Logs
+1. In the Databricks Apps UI, select `ai-self-healing-pipeline`.
+2. Click the **Logs** tab.
+3. Review the container startup output to confirm Streamlit started without errors.
+
+### 4. Container Restart
+After updating `app.yaml`, restart the app from the Databricks Apps UI or CLI:
+```bash
+databricks apps stop ai-self-healing-pipeline
+databricks apps deploy ai-self-healing-pipeline --source-code-path /Workspace/Users/<your-user>/self_healing_databricks
+databricks apps start ai-self-healing-pipeline
+```

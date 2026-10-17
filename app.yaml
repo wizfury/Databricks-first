@@ -2,10 +2,6 @@ command:
   - "streamlit"
   - "run"
   - "app.py"
-  - "--server.port"
-  - "8501"
-  - "--server.address"
-  - "0.0.0.0"
 
 env:
   - name: "DATABRICKS_APP_NAME"
@@ -26,3 +22,7 @@ env:
     value: "3"
   - name: "DEFAULT_COOLDOWN_SECONDS"
     value: "60"
+  - name: "STREAMLIT_SERVER_HEADLESS"
+    value: "true"
+  - name: "STREAMLIT_GATHER_USAGE_STATS"
+    value: "false"

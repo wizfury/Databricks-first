@@ -56,8 +56,10 @@ class DatabricksClientWrapper:
             self._init_mock_data()
 
     def _has_valid_credentials(self) -> bool:
-        """Check if environment contains Databricks host and auth details."""
-        return bool(os.getenv("DATABRICKS_HOST")) and bool(
+        """Check if environment contains Databricks host, auth details, or is running inside Databricks Apps."""
+        if os.getenv("DATABRICKS_APP_PORT") or os.getenv("DATABRICKS_HOST"):
+            return True
+        return bool(
             os.getenv("DATABRICKS_TOKEN")
             or (os.getenv("DATABRICKS_CLIENT_ID") and os.getenv("DATABRICKS_CLIENT_SECRET"))
         )
