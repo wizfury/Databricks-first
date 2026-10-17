@@ -1,0 +1,7 @@
+databricks-sdk==0.153.0
+streamlit>=1.35.0,<=1.66.0
+pydantic>=2.7.0,<=2.13.5
+pandas>=2.1.0
+altair>=5.2.0
+pytest>=8.0.0
+requests>=2.31.0
